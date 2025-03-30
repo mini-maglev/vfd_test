@@ -104,81 +104,117 @@ void setupPWM() {
  */
 void svpwmTimerCallback() {
     // Test
-    mcpwm_comparator_set_compare_value(comparators[0], (uint32_t)(0.4 * 0.5 * PERIOD_TICKS));
-    mcpwm_comparator_set_compare_value(comparators[1], (uint32_t)(0.8 * 0.5 * PERIOD_TICKS));
+    // mcpwm_comparator_set_compare_value(comparators[0], (uint32_t)(0.4 * 0.5 * PERIOD_TICKS));
+    // mcpwm_comparator_set_compare_value(comparators[1], (uint32_t)(0.8 * 0.5 * PERIOD_TICKS));
 
+    // Parameters
+    static float angle = 0.0f;
+    float v_magnitude = 50.0f;
+    float v_freq = 1000.0f;
 
-    // // Parameters
-    // static float angle = 0.0f;
-    // float v_magnitude = 50.0f;
-    // float v_freq = 1000.0f;
+    // TESTTT REMOVELATERRR
+    angle = 0.0001f;
 
-    // float T1, T2, T0; // T1 and T2 are times in the two states, and T0 is time in zero vector
-    // float duty_cycle_a, duty_cycle_b, duty_cycle_c;
+    float duty_cycle_a;
+    float duty_cycle_b;
+    float duty_cycle_c;
     
-    // float v_alpha = v_magnitude/POWER_RAIL * cosf(angle);
-    // float v_beta = v_magnitude/POWER_RAIL * sinf(angle);
+    // Not quite inverse Park transform...
+    float v_alpha = v_magnitude/POWER_RAIL * cosf(angle);
+    float v_beta = v_magnitude/POWER_RAIL * sinf(angle);
     
-    // // Calculate sector (1-6)
-    // int sector = 0;
-    // float X = v_alpha;
-    // float Y = (-v_alpha + sqrtf(3) * v_beta) / 2;
-    // float Z = (-v_alpha - sqrtf(3) * v_beta) / 2;
-    
-    // if (X > 0) sector |= 1;
-    // if (Y > 0) sector |= 2;
-    // if (Z > 0) sector |= 4;
+    // // Inverse Clarke transform
+    // float A = v_alpha;
+    // float B = (-v_alpha + sqrtf(3) * v_beta) / 2;
+    // float C = (-v_alpha - sqrtf(3) * v_beta) / 2;
 
-    // // Compute T1 and T2 based on sector
-    // switch (sector) {
-    //     case 1:  // Sector 1
-    //         T1 = X;
-    //         T2 = Y;
-    //         break;
-    //     case 2:  // Sector 2
-    //         T1 = Y;
-    //         T2 = -Z;
-    //         break;
-    //     case 3:  // Sector 3
-    //         T1 = -Z;
-    //         T2 = X;
-    //         break;
-    //     case 4:  // Sector 4
-    //         T1 = -X;
-    //         T2 = Z;
-    //         break;
-    //     case 5:  // Sector 5
-    //         T1 = Z;
-    //         T2 = -Y;
-    //         break;
-    //     case 6:  // Sector 6
-    //         T1 = -Y;
-    //         T2 = -X;
-    //         break;
-    //     default:
-    //         T1 = 0;
-    //         T2 = 0;
-    //         break;
-    // }
+    // Get region (labelled 1-6 CCW from x axis)
+    int region;
+    if (v_beta > 0) {
+        if (v_alpha > 0) {
+            if (v_beta > v_alpha * sqrtf(3)) { // Just use basic trig to find if it is in region 1
+                region = 2;
+            }
+            else {
+                region = 1; // Covers half of region 2
+            }
+        }
+        else  {
+            if (v_beta > -v_alpha * sqrtf(3)) {
+                region = 2; // The other half
+            }
+            else {
+                region = 3; 
+            }
+        }
+    }
+    else {
+        if (v_alpha > 0) {
+            if (-v_beta > v_alpha * sqrt(3)) {
+                region = 5;
+            }
+            else {
+                region = 6;
+            }
+        }
+        else {
+            if (-v_beta > -v_alpha * sqrt(3)) {
+                region = 5;
+            }
+            else {
+                region = 4;
+            }
+        }
+    }
 
-    // // Compute T0 time
-    // T0 = 1 - (T1 + T2);
+    // T1 and T2 are times in the two states, and T0 is time in zero vector
+    // https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/171/SpaceVectorPulseWidthModulationTechnique.pdf
+    float T2 = 3.0/PI * v_magnitude/POWER_RAIL * sinf(angle);
+    float T1 = 3.0*sqrtf(3)/(2*PI) * v_magnitude/POWER_RAIL * cosf(angle) - T2/2;
+    float T0 = 1 - (T1 + T2);
 
-    // // Calculate duty cycles
-    // duty_cycle_a = (T1 + T2 + T0 / 2) * 100;
-    // duty_cycle_b = (T2 + T0 / 2) * 100;
-    // duty_cycle_c = (T0 / 2) * 100;
+    switch (region) {
+        case 1: {
+            duty_cycle_a = T1 + T2 + T0/2;
+            duty_cycle_b = T2 + T0/2;
+            duty_cycle_c = T0/2;
+        } break;
+        case 2: {
+            duty_cycle_a = T1 + T0/2;
+            duty_cycle_b = T1 + T2 + T0/2;
+            duty_cycle_c = T0/2;
+        } break;
+        case 3: {
+            duty_cycle_a = T0/2;
+            duty_cycle_b = T1 + T2 + T0/2;
+            duty_cycle_c = T2 + T0/2;
+        } break;
+        case 4: {
+            duty_cycle_a = T0/2;
+            duty_cycle_b = T1 + T0/2;
+            duty_cycle_c = T1 + T2 + T0/2;
+        } break;
+        case 5: {
+            duty_cycle_a = T2 + T0/2;
+            duty_cycle_b = T0/2;
+            duty_cycle_c = T1 + T2 + T0/2;
+        } break;
+        case 6: {
+            duty_cycle_a = T1 + T2 + T0/2;
+            duty_cycle_b = T0/2;
+            duty_cycle_c = T1 + T0/2;
+        } break;
+    }
 
-    // // Update PWM duty cycle
-    // mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, duty_cycle_a);
-    // mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, duty_cycle_b);
-    // mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_2, MCPWM_OPR_A, duty_cycle_c);
+    mcpwm_comparator_set_compare_value(comparators[0], (uint32_t)(duty_cycle_a * PERIOD_TICKS/2));
+    mcpwm_comparator_set_compare_value(comparators[1], (uint32_t)(duty_cycle_b * PERIOD_TICKS/2));
+    mcpwm_comparator_set_compare_value(comparators[2], (uint32_t)(duty_cycle_c * PERIOD_TICKS/2));
 
-    // // Increment the angle
-    // angle += 2 * PI * v_freq / LOOP_RATE;
-    // if (angle > 2 * PI) {
-    //     angle -= 2 * PI;
-    // }
+    // Increment the angle
+    angle += 2 * PI * v_freq / LOOP_RATE;
+    if (angle > 2 * PI) {
+        angle -= 2 * PI;
+    }
 }
 
 void startSvpwmTask() {
