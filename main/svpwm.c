@@ -110,14 +110,11 @@ void svpwmTimerCallback() {
     // Parameters
     static float angle = 0.0f;
     float v_magnitude = 50.0f;
-    float v_freq = 1000.0f;
+    float v_freq = 100.0f;
 
-    // TESTTT REMOVELATERRR
-    angle = 0.0001f;
-
-    float duty_cycle_a;
-    float duty_cycle_b;
-    float duty_cycle_c;
+    float duty_cycle_a = 0;
+    float duty_cycle_b = 0;
+    float duty_cycle_c = 0;
     
     // Not quite inverse Park transform...
     float v_alpha = v_magnitude/POWER_RAIL * cosf(angle);
