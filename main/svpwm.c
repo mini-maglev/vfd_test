@@ -6,6 +6,9 @@
 #include "math.h"
 #include "driver/gpio.h"
 #include "driver/mcpwm_prelude.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 
 mcpwm_timer_handle_t timer;
@@ -18,6 +21,9 @@ mcpwm_gen_handle_t gen_B;
 mcpwm_gen_handle_t gen_B_inv;
 mcpwm_gen_handle_t gen_C;
 mcpwm_gen_handle_t gen_C_inv;
+
+volatile float speed = 0.0f; // Global variable accessible by SVPWM task
+static adc_oneshot_unit_handle_t adc_handle;
 
 /*
  * Init PWM stuff so the main setup loop doesn't get too cluttered
@@ -109,8 +115,11 @@ void svpwmTimerCallback() {
 
     // Parameters
     static float angle = 0.0f;
-    float v_magnitude = 50.0f;
-    float v_freq = 100.0f;
+    // float v_magnitude = 50.0f;
+    // float v_freq = 100.0f;
+    float v_magnitude = speed + 10.0;
+    float v_freq = v_magnitude * 4.0;
+
 
     float duty_cycle_a = 0;
     float duty_cycle_b = 0;
@@ -225,10 +234,28 @@ void startSvpwmTask() {
 }
 
 
+void readPotentiometerTask(void *pvParameters) {
+    while (1) {
+        int raw_value = 0;
+        adc_oneshot_read(adc_handle, POT, &raw_value);
+        speed = (float)raw_value / 4095.0f * 40.0f;
+        
+        // ESP_LOGI("POT_READ", "Speed: %.2f", speed);
+        vTaskDelay(pdMS_TO_TICKS(1000 / POT_READ_HZ));
+    }
+}
 
+void setupPotentiometer() {
+    adc_oneshot_unit_init_cfg_t adc_config = {
+        .unit_id = ADC_UNIT_1,
+    };
+    adc_oneshot_new_unit(&adc_config, &adc_handle);
 
+    adc_oneshot_chan_cfg_t channel_config = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT
+    };
+    adc_oneshot_config_channel(adc_handle, POT, &channel_config);
 
-
-
-
-
+    xTaskCreate(readPotentiometerTask, "PotReadTask", 2048, NULL, 5, NULL);
+}
